@@ -1,23 +1,23 @@
-//
-//  Persistence.swift
-//  PictureBookApp
-//
-//  Created by MYU HAYASHI on 2025/07/02.
-//
-
 import CoreData
 
 struct PersistenceController {
     static let shared = PersistenceController()
 
-    @MainActor
-    static let preview: PersistenceController = {
+    static var preview: PersistenceController = {
         let result = PersistenceController(inMemory: true)
         let viewContext = result.container.viewContext
-        for _ in 0..<10 {
-            let newItem = Item(context: viewContext)
-            newItem.timestamp = Date()
+        
+        // プレビュー用のサンプルデータを作成
+        for i in 0..<3 {
+            let newBook = Book(context: viewContext)
+            newBook.id = "preview_\(i)"
+            newBook.title = "サンプル絵本 \(i + 1)"
+            newBook.coverImageName = "sample_\(i)"
+            newBook.isFavorite = i == 0 // 最初の1冊だけお気に入り
+            newBook.readCount = Int32(i * 2)
+            newBook.createdAt = Date()
         }
+        
         do {
             try viewContext.save()
         } catch {

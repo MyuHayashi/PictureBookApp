@@ -1,0 +1,6 @@
+*.xcuserstate
+xcuserdata/
+.DS_Store
+DerivedData/git add .gitignore
+
+
