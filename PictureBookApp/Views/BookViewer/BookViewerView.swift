@@ -31,7 +31,6 @@ struct BookViewerView: View {
     // 読書モード
     @State private var readingMode: ReadingMode = .silent
     @State private var showControls = true
-    @State private var controlsTimer: Timer?
     
     // 音声再生（将来の実装用）
     @State private var isPlaying = false
@@ -61,7 +60,6 @@ struct BookViewerView: View {
                 withAnimation(.easeInOut(duration: 0.3)) {
                     showControls.toggle()
                 }
-                resetControlsTimer()
             }
             
             // コントロールオーバーレイ
@@ -94,42 +92,27 @@ struct BookViewerView: View {
         .onAppear {
             // 読了回数を増やす
             dataManager.incrementReadCount(book: book)
-            if !isLandscape {
-                startControlsTimer()
-            } else {
+            // iPhoneの横向きの場合のみコントロールを隠す
+            if isLandscape && UIDevice.current.userInterfaceIdiom == .phone {
                 showControls = false
             }
         }
         .onChange(of: isLandscape) { newValue in
-            if newValue {
-                // 横向きになったらコントロールを隠す
-                showControls = false
-                controlsTimer?.invalidate()
-            } else {
-                // 縦向きに戻ったらコントロールを表示してタイマー開始
-                showControls = true
-                startControlsTimer()
+            // iPhoneの場合のみ横向きでコントロールを隠す
+            if UIDevice.current.userInterfaceIdiom == .phone {
+                if newValue {
+                    // 横向きになったらコントロールを隠す
+                    showControls = false
+                } else {
+                    // 縦向きに戻ったらコントロールを表示
+                    showControls = true
+                }
             }
+            // iPadでは向きに関わらずコントロールの表示状態を維持
         }
         .onDisappear {
-            controlsTimer?.invalidate()
             // 画面回転を解除
             AppDelegate.orientationLock = .all
-        }
-    }
-    
-    private func startControlsTimer() {
-        controlsTimer?.invalidate()
-        controlsTimer = Timer.scheduledTimer(withTimeInterval: 3.0, repeats: false) { _ in
-            withAnimation(.easeInOut(duration: 0.3)) {
-                showControls = false
-            }
-        }
-    }
-    
-    private func resetControlsTimer() {
-        if showControls {
-            startControlsTimer()
         }
     }
 }
@@ -143,7 +126,11 @@ struct PageContentView: View {
     @Environment(\.horizontalSizeClass) var horizontalSizeClass
     
     var isLandscape: Bool {
-        verticalSizeClass == .compact || horizontalSizeClass == .regular
+        // iPadの場合は横向き判定を少し変える（画面が正方形に近いため）
+        if UIDevice.current.userInterfaceIdiom == .pad {
+            return verticalSizeClass == .compact
+        }
+        return verticalSizeClass == .compact || horizontalSizeClass == .regular
     }
     
     var body: some View {
@@ -167,10 +154,10 @@ struct PageContentView: View {
                         // テキストエリア
                         VStack(spacing: 20) {
                             Text(getSampleText(for: pageNumber))
-                                .font(.system(size: 18, weight: .medium))
+                                .font(.system(size: UIDevice.current.userInterfaceIdiom == .pad ? 24 : 18, weight: .medium))
                                 .multilineTextAlignment(.center)
                                 .foregroundColor(.white)
-                                .padding(.horizontal, 30)
+                                .padding(.horizontal, UIDevice.current.userInterfaceIdiom == .pad ? 60 : 30)
                                 .padding(.top, 30)
                             
                             Spacer()
@@ -211,10 +198,10 @@ struct PageContentView: View {
                 if isLandscape {
                     // 横向きの時はテキストも画像内に表示
                     Text(getSampleText(for: pageNumber))
-                        .font(.system(size: 24, weight: .medium))
+                        .font(.system(size: UIDevice.current.userInterfaceIdiom == .pad ? 32 : 24, weight: .medium))
                         .multilineTextAlignment(.center)
                         .foregroundColor(.white)
-                        .padding(.horizontal, 60)
+                        .padding(.horizontal, UIDevice.current.userInterfaceIdiom == .pad ? 120 : 60)
                         .padding(.top, 20)
                 }
             }
@@ -245,6 +232,12 @@ struct TopControlBar: View {
     @Binding var readingMode: ReadingMode
     let onClose: () -> Void
     @State private var orientation = UIDeviceOrientation.portrait
+    @State private var showRotationHint = false  // 追加
+    @Environment(\.verticalSizeClass) var verticalSizeClass
+    
+    var isLandscape: Bool {
+        verticalSizeClass == .compact
+    }
     
     var body: some View {
         HStack {
@@ -301,32 +294,22 @@ struct TopControlBar: View {
                     }
                 }
                 
-                // 画面回転ボタン
+                // 画面回転ボタン（変更：ヒントを表示）
                 Button(action: {
-                    if orientation.isPortrait {
-                        // 横向きに強制
-                        AppDelegate.orientationLock = .landscape
-                        UIDevice.current.setValue(UIInterfaceOrientation.landscapeRight.rawValue, forKey: "orientation")
-                    } else {
-                        // 縦向きに強制
-                        AppDelegate.orientationLock = .portrait
-                        UIDevice.current.setValue(UIInterfaceOrientation.portrait.rawValue, forKey: "orientation")
-                    }
-                    // 少し待ってから全方向を許可
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                        AppDelegate.orientationLock = .all
-                    }
+                    showRotationHint = true
                 }) {
                     ZStack {
                         Circle()
                             .fill(Color.black.opacity(0.6))
                             .frame(width: 44, height: 44)
                         
-                        // 基本的なアイコンを使用
-                        Image(systemName: "viewfinder")
+                        Image(systemName: isLandscape ? "iphone" : "iphone.landscape")
                             .font(.system(size: 20))
                             .foregroundColor(.white)
                     }
+                }
+                .sheet(isPresented: $showRotationHint) {
+                    RotationHintView(isLandscape: isLandscape)
                 }
             }
         }
@@ -344,6 +327,60 @@ struct TopControlBar: View {
         .onReceive(NotificationCenter.default.publisher(for: UIDevice.orientationDidChangeNotification)) { _ in
             orientation = UIDevice.current.orientation
         }
+    }
+}
+
+// MARK: - 回転ヒントビュー（追加）
+struct RotationHintView: View {
+    let isLandscape: Bool
+    @Environment(\.presentationMode) var presentationMode
+    
+    var body: some View {
+        VStack(spacing: 30) {
+            Text(isLandscape ? "縦向きで読む" : "横向きで読む")
+                .font(.title)
+                .fontWeight(.bold)
+                .padding(.top, 40)
+            
+            // デバイス回転のアニメーション
+            Image(systemName: "iphone")
+                .font(.system(size: 80))
+                .foregroundColor(.blue)
+                .rotationEffect(.degrees(isLandscape ? 0 : 90))
+                .animation(.easeInOut(duration: 1).repeatForever(autoreverses: true), value: isLandscape)
+            
+            Text("デバイスを回転させてください")
+                .font(.title3)
+                .foregroundColor(.secondary)
+            
+            VStack(alignment: .leading, spacing: 15) {
+                Label("画面の向きのロックがオフになっていることを確認", systemImage: "lock.rotation.open")
+                    .font(.callout)
+                
+                if !isLandscape {
+                    Label("横向きでは画像が全画面表示されます", systemImage: "aspectratio.fill")
+                        .font(.callout)
+                }
+            }
+            .padding()
+            .background(Color.gray.opacity(0.1))
+            .cornerRadius(10)
+            
+            Button(action: {
+                presentationMode.wrappedValue.dismiss()
+            }) {
+                Text("閉じる")
+                    .fontWeight(.semibold)
+                    .foregroundColor(.white)
+                    .frame(width: 200, height: 50)
+                    .background(Color.blue)
+                    .cornerRadius(25)
+            }
+            .padding(.bottom, 40)
+        }
+        .padding()
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color(UIColor.systemBackground))
     }
 }
 
